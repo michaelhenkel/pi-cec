@@ -1,0 +1,18 @@
+[Unit]
+Description=Pi continuous USB power validation log
+After=local-fs.target
+
+[Service]
+ExecStart=/usr/local/bin/pi-cec power-log
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pi-cec-power
+StateDirectory=pi-cec
+ProtectHome=true
+ProtectSystem=strict
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

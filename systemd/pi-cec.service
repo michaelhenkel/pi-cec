@@ -1,0 +1,28 @@
+[Unit]
+Description=USB bus to HDMI-CEC AV appliance
+Requires=pi-cec-gadget.service
+After=pi-cec-gadget.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Environment=DAEMON_ARGS=--dry-run
+EnvironmentFile=-/etc/pi-cec/mode
+ExecStart=/usr/local/bin/pi-cec --config /etc/pi-cec/pi-cec.conf $DAEMON_ARGS
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=5
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pi-cec
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/sys/kernel/tracing
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

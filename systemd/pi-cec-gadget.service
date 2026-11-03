@@ -1,0 +1,17 @@
+[Unit]
+Description=Pi USB CDC ACM bus detector
+After=systemd-modules-load.service
+Before=pi-cec.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=GADGET_SELF_POWERED=0
+EnvironmentFile=-/etc/pi-cec/gadget.env
+ExecStart=/usr/local/bin/pi-cec gadget start
+ExecStop=/usr/local/bin/pi-cec gadget stop
+TimeoutStartSec=20
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

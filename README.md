@@ -151,3 +151,7 @@ sudo reboot
 
 Managed configuration is restored from backups. Logs and backup files are
 retained.
+
+## License
+
+[MIT](LICENSE).

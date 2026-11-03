@@ -4,17 +4,18 @@ Automatically turn on your TV and AV receiver when your PC wakes, select the
 PC's HDMI input, and put them into standby when the PC sleeps.
 
 `pi-cec` runs on a Raspberry Pi 4. It detects sleep and wake through the PC's USB
-bus and controls the AV system over HDMI-CEC. Nothing needs to run on the PC.
+bus and controls the AV system over HDMI-CEC. No companion software needs to be
+installed on the PC, and normal operation requires no network connection.
 
 ## How it works
 
 The Pi connects to the PC over USB and to a spare HDMI input on the receiver.
-Your graphics card stays connected directly to its existing receiver input.
+The PC's video output remains connected to its existing receiver input.
 
 ```mermaid
 flowchart LR
     PC -->|"USB data + power"| Pi["Raspberry Pi 4"]
-    PC -->|"GPU HDMI → PC input"| AVR["AV receiver"]
+    PC -->|"HDMI → PC input"| AVR["AV receiver"]
     Pi -->|"HDMI → spare input"| AVR
     AVR -->|HDMI| TV
 ```
@@ -26,11 +27,12 @@ flowchart LR
   the PC. Standby behavior depends on the configured ownership policy.
 
 The Pi acts as a CEC proxy for the PC's HDMI address so the receiver selects
-the graphics card's input. Video never passes through the Pi; the existing
-4K/120 Hz/HDR video path stays intact.
+the PC input. Video never passes through the Pi, so it adds no constraints to
+the video connection's resolution, refresh rate, or HDR support.
 
-An Xbox controller that already wakes your PC over Bluetooth continues to do
-so. The Pi responds to the resulting USB wake event.
+Any existing wake method can be used, provided it resumes the USB connection
+to the Pi. `pi-cec` responds to that transition; it does not wake the PC itself.
+Manual and automatic sleep are handled through the same USB event detection.
 
 ## Requirements
 
@@ -47,7 +49,8 @@ Pi supply in parallel.
 
 ## Build and install
 
-On the Pi, with Ubuntu or Debian:
+Build on the Pi with Rust, a C compiler, and Linux CEC headers. For example,
+on Ubuntu or Debian:
 
 ```sh
 sudo apt update
@@ -82,8 +85,7 @@ sudo pi-cec --check
 sudo pi-cec enable-live
 ```
 
-The services start automatically on Pi boot. An SSH session or PC application
-is not needed during normal use.
+Once enabled, the services start automatically on Pi boot and run unattended.
 
 ## Configuration
 

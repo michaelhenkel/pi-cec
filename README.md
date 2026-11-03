@@ -123,20 +123,15 @@ sudo pi-cec --dry-run
 sudo systemctl start pi-cec
 ```
 
-## Compatibility and limitations
-
-Manual PC sleep, controller wake, and correct HDMI input selection have been
-confirmed on a Pi 4 with an Onkyo receiver and LG TV. Broader hardware testing,
-extended idle testing, and console takeover tests remain pending. See the
-[validation record](docs/validation.md) for details.
+## Compatibility
 
 - **Display timeout is separate from PC sleep.** Turning off the display alone
   does not suspend the USB bus or trigger AV standby.
 - **USB events depend on the host.** An OS suspending an idle USB device can
   look like PC sleep. Background wake can look like user wake.
-- **Hibernate may interrupt Pi power.** The tested USB port kept the Pi running
-  during sleep but reset it during hibernate/resume. Startup reconciliation
-  supports delayed recovery after the Pi boots.
+- **Hibernate may interrupt Pi power.** USB power can behave differently during
+  sleep, hibernate, and shutdown. With `startup_select_pc=true`, the Pi checks
+  routing after it boots and the PC enumerates the USB device.
 - **Source protection depends on CEC messages.** A silent receiver input change
   may be undetectable. The default `fresh` standby policy skips standby without
   positive routing evidence; other policies are explained in the setup guide.

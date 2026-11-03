@@ -1,87 +1,156 @@
-# Pi CEC appliance
+# pi-cec
 
-One Rust executable detects the Windows host's USB bus state and controls an AV
-system through Linux's native CEC framework. It leaves the RTX → Onkyo → LG video
-path intact. No Windows service, application, COM-port session, network heartbeat,
-or controller-wake changes are required.
+Automatically turn on your TV and AV receiver when your PC wakes, select the
+PC's HDMI input, and put them into standby when the PC sleeps.
 
-**Sleep/wake is working and enabled.** On 2026-11-02 the user confirmed that PC
-sleep turns off both the receiver and TV, and the Xbox button wakes everything.
-Correct RTX input selection and PC picture on the LG were also physically
-confirmed. All 50 Rust tests passed. Runtime uses only USB and HDMI-CEC.
-USB-A and the initial rear USB-C port produced undervoltage, including with
-the 600 MHz CPU limit. The rear USB4/40 Gbps port passed boot, CPU load and one
-S3 sleep cycle. Hibernate/resume restarted the Pi even with the gadget stopped.
-The user now accepts delayed Pi boot recovery for hibernate/power-on and
-prioritizes ordinary sleep. `power_scope=sleep` records that limited validation;
-`startup_select_pc=true` checks AV routing after fresh USB enumeration at boot.
-The daemon uses HDMI-only session ownership, the fixed-receiver LG setting,
-TV-first standby, and wake recovery across receiver HDMI resets. Console
-takeover, extended cycling and full cold-start validation remain pending. See
-[commissioning](docs/commissioning.md) and [test status](docs/validation.md).
+`pi-cec` runs on a Raspberry Pi 4. It detects sleep and wake through the PC's USB
+bus and controls the AV system over HDMI-CEC. Nothing needs to run on the PC.
 
-## Build
+## How it works
 
-Build on Linux with Rust 1.74+, a C compiler, `ar`, and Linux CEC UAPI headers.
-There are no Cargo dependencies. On the installed Pi's Ubuntu distribution:
+The Pi connects to the PC over USB and to a spare HDMI input on the receiver.
+Your graphics card stays connected directly to its existing receiver input.
+
+```mermaid
+flowchart LR
+    PC -->|"USB data + power"| Pi["Raspberry Pi 4"]
+    PC -->|"GPU HDMI → PC input"| AVR["AV receiver"]
+    Pi -->|"HDMI → spare input"| AVR
+    AVR -->|HDMI| TV
+```
+
+- **PC wakes:** turn on the TV and receiver, then select the PC input.
+- **PC sleeps:** wait through a configurable debounce period, check source
+  ownership, then send standby if the PC still owns the session.
+- **Another source takes over:** yield to it instead of repeatedly selecting
+  the PC. Standby behavior depends on the configured ownership policy.
+
+The Pi acts as a CEC proxy for the PC's HDMI address so the receiver selects
+the graphics card's input. Video never passes through the Pi; the existing
+4K/120 Hz/HDR video path stays intact.
+
+An Xbox controller that already wakes your PC over Bluetooth continues to do
+so. The Pi responds to the resulting USB wake event.
+
+## Requirements
+
+- Raspberry Pi 4 running Linux with systemd, USB gadget support, and native
+  Linux CEC support.
+- A USB data cable from the PC to the Pi's **USB-C port**.
+- A micro-HDMI cable from the Pi to a spare receiver input.
+- A TV and receiver with HDMI-CEC enabled.
+- Enough USB power to keep the Pi running while the PC sleeps.
+
+Power availability varies by PC port and sleep state. Check for undervoltage
+and unexpected Pi reboots during setup. Never connect PC USB power and a second
+Pi supply in parallel.
+
+## Build and install
+
+On the Pi, with Ubuntu or Debian:
 
 ```sh
 sudo apt update
-sudo apt install cargo rustc build-essential linux-libc-dev v4l-utils
+sudo apt install git cargo rustc build-essential linux-libc-dev v4l-utils
+
+git clone https://github.com/michaelhenkel/pi-cec.git
+cd pi-cec
 cargo test --all-targets
 cargo build --release
+
+sudo ./target/release/pi-cec inspect
+sudo ./target/release/pi-cec install
 ```
 
-The distribution and package availability must first be checked on the actual Pi.
-No command here reinstalls or reflashes its OS. Native builds on the Pi are the
-supported deployment path; WSL can build/test the hardware-independent policy and
-copy source over SSH. The build script's `CC` override is available, but a cross
-toolchain/sysroot must be configured separately.
+Requires Rust 1.74 or newer. The application is written in Rust with no Cargo
+dependencies and a small C shim for the Linux CEC interface.
 
-## Components
+The installer adds the executable, configuration, and systemd services. It
+starts power logging; AV control stays disabled until setup is complete.
 
-| File | Responsibility |
-|---|---|
-| `src/lib.rs` | Pure UNKNOWN / PC_INACTIVE / PC_ACTIVE / PENDING_OFF state machine |
-| `src/main.rs` | CEC receive policy, bounded wake sequence, ownership and recovery |
-| `src/usb.rs` | Validated sysfs backend or scoped libcomposite event bridge |
-| `src/edid.rs` | Checked Pi-only physical-address EDID proxy preparation |
-| `src/admin/` | Rust diagnostics, power logging, gadget/tracing, boot, install/uninstall |
-| `native/cec.c` | Small C shim for Linux's CEC ioctl ABI |
-| `systemd/` | Daemon, minimal CDC ACM gadget, and power validation services |
+Follow the [setup guide](docs/commissioning.md) to configure USB peripheral
+mode, measure both HDMI physical addresses, and install the Pi's CEC proxy
+identity. These addresses depend on your HDMI connections, so they must be
+measured for your setup.
 
-There are no Python, PowerShell, or shell script files. On this Pi's Ubuntu,
-the optional firmware override uses a one-line dracut configuration. On older
-initramfs-tools systems only, it generates a five-line shell hook required by
-that tool's protocol. All substantive setup logic is Rust. The C shim avoids
-duplicating kernel structure layout and ioctl-number calculations in Rust.
-
-## Modes
+After validating power, USB sleep/wake events, and input selection, update
+`/etc/pi-cec/pi-cec.conf`, including its verification fields and tested kernel
+version. Enable automatic operation:
 
 ```sh
-target/release/pi-cec --help
-sudo target/release/pi-cec inspect
-sudo target/release/pi-cec install
-sudo /usr/local/bin/pi-cec --diagnostic
-sudo /usr/local/bin/pi-cec --commission
-sudo /usr/local/bin/pi-cec --check
+sudo pi-cec --check
+sudo pi-cec enable-live
 ```
 
-`install` enables only persistent power logging. `--diagnostic` and `--dry-run`
-use monitor mode and claim no CEC logical address; intended TX is logged and
-suppressed. `--commission` requires verified power, verified USB events and the
-correct proxy PA, and always disables standby. Normal live mode additionally
-requires routing verification and the exact tested kernel release.
-Power verification is scoped explicitly: `continuous` requires all host power
-states; `sleep` accepts reset/delayed recovery outside the validated sleep path.
-The latter does not make unexpected power loss or storage reliability tested.
+The services start automatically on Pi boot. An SSH session or PC application
+is not needed during normal use.
 
-Logs go to journald with wall-clock timestamps and CEC TX/RX frames. Timer
-decisions use monotonic time. A TX queue success or CEC ACK never sets observed
-routing. `session` policy tracks a successful CEC active-source claim separately
-from observed routing, yields to other sources, and loses ownership on adapter
-or observation loss. The daemon does not continuously enforce the PC input.
-There are no runtime network requests or receiver API dependencies.
+## Configuration
 
-Configure [config/pi-cec.conf](config/pi-cec.conf) after measuring the topology.
-Never enable verification flags merely to bypass a missing hardware test.
+Settings live in `/etc/pi-cec/pi-cec.conf`. See the
+[default configuration](config/pi-cec.conf) for all options.
+
+| Setting | Purpose |
+| --- | --- |
+| `pc_pa`, `pi_pa` | Measured physical addresses of the PC and original Pi HDMI inputs |
+| `on_debounce_ms`, `off_debounce_ms` | Filter brief USB transitions before taking action |
+| `standby`, `standby_policy` | Enable standby and choose how PC source ownership is established |
+| `startup_select_pc` | Check routing and select the PC after fresh USB enumeration at Pi startup |
+| `tv_always_receiver` | Handle a TV that always uses the receiver input; excludes TV apps from ownership protection |
+| `power_scope` | Require continuous power, or accept Pi restarts outside ordinary sleep/wake |
+
+Restart the daemon after editing its configuration:
+
+```sh
+sudo systemctl restart pi-cec
+```
+
+## Diagnostics
+
+```sh
+sudo pi-cec inspect                            # Hardware and boot configuration
+systemctl status pi-cec                        # Service status
+journalctl -u pi-cec -f                        # USB events and CEC messages
+sudo pi-cec power-report /var/lib/pi-cec/power.log
+```
+
+To inspect behavior without sending CEC commands, stop the service and run in
+dry-run mode. Press Ctrl+C when finished, then start the service again.
+
+```sh
+sudo systemctl stop pi-cec
+sudo pi-cec --dry-run
+sudo systemctl start pi-cec
+```
+
+## Compatibility and limitations
+
+Manual PC sleep, controller wake, and correct HDMI input selection have been
+confirmed on a Pi 4 with an Onkyo receiver and LG TV. Broader hardware testing,
+extended idle testing, and console takeover tests remain pending. See the
+[validation record](docs/validation.md) for details.
+
+- **Display timeout is separate from PC sleep.** Turning off the display alone
+  does not suspend the USB bus or trigger AV standby.
+- **USB events depend on the host.** An OS suspending an idle USB device can
+  look like PC sleep. Background wake can look like user wake.
+- **Hibernate may interrupt Pi power.** The tested USB port kept the Pi running
+  during sleep but reset it during hibernate/resume. Startup reconciliation
+  supports delayed recovery after the Pi boots.
+- **Source protection depends on CEC messages.** A silent receiver input change
+  may be undetectable. The default `fresh` standby policy skips standby without
+  positive routing evidence; other policies are explained in the setup guide.
+- **Kernel updates need revalidation.** USB tracing uses kernel callbacks;
+  live mode requires the configured kernel version to match the running one.
+
+## Uninstall
+
+```sh
+sudo systemctl stop pi-cec
+sudo pi-cec prepare-boot --remove
+sudo pi-cec uninstall
+sudo reboot
+```
+
+Managed configuration is restored from backups. Logs and backup files are
+retained.
